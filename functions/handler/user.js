@@ -7,6 +7,7 @@ const {
 	reduceUserDetail
 } = require('../util/validator');
 
+const { uuid } = require('uuidv4');
 firebase.initializeApp(config);
 
 exports.signUp = (req, res) => {
@@ -58,7 +59,9 @@ exports.signUp = (req, res) => {
 								email: 'Email is already in use'
 							});
 						}
-						return res.status(500).json({ error: err.code });
+						return res
+							.status(500)
+							.json({ general: 'Something went Wrong. Please try again!' });
 					});
 			}
 		});
@@ -84,13 +87,9 @@ exports.login = (req, res) => {
 		})
 		.catch((err) => {
 			console.log(err);
-			if (err.code === 'auth/wrong-password') {
-				return res
-					.status(403)
-					.json({ general: 'Wrong Credentails, please try again' });
-			} else {
-				return res.status(500).json({ error: err.code });
-			}
+			return res
+				.status(403)
+				.json({ general: 'Wrong credentials, please try again' });
 		});
 };
 //Add user detail
@@ -108,10 +107,39 @@ exports.addUserDetail = (req, res) => {
 			return res.status(500).json({ error: err.code });
 		});
 };
+//get any user's details
+exports.getUserDetails = (req, res) => {
+	let userData = {};
+	db.doc(`/user/${req.params.username}`)
+		.get()
+		.then((doc) => {
+			if (doc.exists) {
+				userData.user = doc.data();
+				return db
+					.collection('posts')
+					.where('username', '==', req.params.username)
+					.orderBy('createdAt', 'desc')
+					.get();
+			}
+		})
+		.then((data) => {
+			userData.posts = {};
+			data.forEach((doc) => {
+				userData.post.push({
+					...doc.data(),
+					postId: doc.id
+				});
+			});
+			return res.json(userData);
+		})
+		.catch((err) => {
+			console.error(err);
+			return res.status(500).json({ error: err.code });
+		});
+};
 
 //get all user details
 exports.getAuthenticatedUser = (req, res) => {
-	console.log(req);
 	let userData = {};
 	db.doc(`/user/${req.user.username}`)
 		.get()
@@ -122,12 +150,29 @@ exports.getAuthenticatedUser = (req, res) => {
 					.collection('likes')
 					.where('username', '==', req.user.username)
 					.get();
+			} else {
+				return res.status(404).json({ error: 'user not found' });
 			}
 		})
 		.then((data) => {
 			userData.likes = [];
 			data.forEach((doc) => {
 				userData.likes.push(doc.data());
+			});
+			return db
+				.collection('notifications')
+				.where('recipient', '==', req.user.username)
+				.orderBy('createdAt', 'desc')
+				.limit(10)
+				.get();
+		})
+		.then((data) => {
+			userData.notifications = [];
+			data.forEach((doc) => {
+				userData.notifications.push({
+					...doc.data(),
+					notificationId: doc.id
+				});
 			});
 			return res.json(userData);
 		})
@@ -148,6 +193,7 @@ exports.uploadImage = (req, res) => {
 
 	let imageFilename;
 	let imageToBeUploaded = {};
+	let generatedToken = uuid();
 	busboy.on('file', (fieldname, file, filename, encoding, mimetype) => {
 		if (mimetype !== 'image/jpeg' && mimetype !== 'image/png') {
 			return res.status(400).json({ error: 'Wrong file type submitted' });
@@ -168,12 +214,13 @@ exports.uploadImage = (req, res) => {
 				resumable: false,
 				metadata: {
 					metadata: {
-						contentType: imageToBeUploaded.mimetype
+						contentType: imageToBeUploaded.mimetype,
+						firebaseStorageDownloadTokens: generatedToken
 					}
 				}
 			})
 			.then(() => {
-				const imageUrl = `https://firebasestorage.googleapis.com/v0/b/${config.storageBucket}/o/${imageFilename}?alt=media`;
+				const imageUrl = `https://firebasestorage.googleapis.com/v0/b/${config.storageBucket}/o/${imageFilename}?alt=media&token=${generatedToken}`;
 				return db
 					.doc(`/user/${req.user.username}`)
 					.update({ imageUrl })
@@ -187,4 +234,22 @@ exports.uploadImage = (req, res) => {
 			});
 	});
 	busboy.end(req.rawBody);
+};
+
+exports.markNotificationRead = (req, res) => {
+	console.log(req.body);
+	let batch = db.batch();
+	req.body.forEach((notificationId) => {
+		const notification = db.doc(`/notifications/${notificationId}`);
+		batch.update(notification, { read: true });
+	});
+	batch
+		.commit()
+		.then(() => {
+			return res.json({ message: 'Notifications marked read' });
+		})
+		.catch((err) => {
+			console.error(err);
+			return res.status(500).json({ error: err.code });
+		});
 };

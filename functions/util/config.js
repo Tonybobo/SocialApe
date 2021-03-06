@@ -1,6 +1,7 @@
 module.exports = {
 	apiKey: 'AIzaSyASu2sUpfGoEFA-oNj4tuxrIQlUMaOttmI',
 	authDomain: 'socialape-9a836.firebaseapp.com',
+	databaseURL: 'https://socialape-9a836-default-rtdb.firebaseio.com',
 	projectId: 'socialape-9a836',
 	storageBucket: 'socialape-9a836.appspot.com',
 	messagingSenderId: '435867938949',
